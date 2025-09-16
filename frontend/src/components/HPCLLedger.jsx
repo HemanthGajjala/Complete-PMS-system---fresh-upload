@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, FileText, RefreshCw, Download, TrendingUp, TrendingDown, Minus, Search, Filter, X, FileSpreadsheet } from 'lucide-react';
+import { AlertCircle, FileText, RefreshCw, Download, TrendingUp, TrendingDown, Minus, Search, Filter, X } from 'lucide-react';
 
 const HPCLLedger = () => {
   const [ledgerData, setLedgerData] = useState([]);
@@ -200,44 +200,6 @@ const HPCLLedger = () => {
     }
   };
 
-  // Export to Excel function
-  const exportToExcel = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/hpcl-transaction-ledger/excel?days=${daysFilter}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to download Excel file');
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // Get filename from response header if available, otherwise use default
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = `HPCL_Transaction_Ledger_${daysFilter}days.xlsx`;
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-      
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error downloading Excel file:', error);
-      setError('Failed to download Excel file: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Get trend icon for net change
   const getTrendIcon = (netChange) => {
     if (netChange > 0) return <TrendingUp className="w-4 h-4 text-red-600" />;
@@ -278,16 +240,7 @@ const HPCLLedger = () => {
             disabled={filteredData.length === 0}
           >
             <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button 
-            variant="outline" 
-            className="ml-2"
-            onClick={exportToExcel}
-            disabled={loading || ledgerData.length === 0}
-          >
-            <FileSpreadsheet className="w-4 h-4 mr-2" />
-            Export Excel
+            Export to Sheets
           </Button>
         </div>
 

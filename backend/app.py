@@ -48,9 +48,36 @@ def get_business_day_range(business_date):
     end_datetime = datetime.combine(business_date + timedelta(days=1), time(8, 30))
     return start_datetime, end_datetime
 
-# OpenAI and LangChain completely removed - not needed for petrol station management
+# Import OpenAI - handle both old and new versions
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    print("OpenAI not available")
 
-# Google Sheets integration disabled
+# LangChain imports for SQL Agent
+try:
+    # Temporarily disable langchain imports due to compatibility issues
+    # from langchain_openai import ChatOpenAI
+    # from langchain_community.utilities import SQLDatabase
+    # from langchain_community.agent_toolkits import SQLDatabaseToolkit
+    # from langchain_community.agent_toolkits.sql.base import create_sql_agent
+    # from langchain.agents.agent_types import AgentType
+    # from langchain.schema import SystemMessage
+    LANGCHAIN_AVAILABLE = False
+    print("LangChain modules temporarily disabled due to compatibility issues")
+except ImportError as e:
+    LANGCHAIN_AVAILABLE = False
+    print(f"LangChain not available: {e}")
+
+# Google Sheets integration imports - DISABLED due to quota issues
+# try:
+#     from google_drive_integration import GoogleDriveDBSync, GoogleSheetsDataProvider
+#     from google_sheets_ai_chat import GoogleSheetsAIChat
+#     GOOGLE_SHEETS_AVAILABLE = True
+#     print("Google Sheets integration imported successfully")
+# except ImportError as e:
 GOOGLE_SHEETS_AVAILABLE = False
 print("Google Sheets integration disabled to avoid quota errors")
 
@@ -75,6 +102,58 @@ db = SQLAlchemy(app)
 
 # Configure CORS to allow all origins and methods
 CORS(app, supports_credentials=True, origins="*")
+
+# Set OpenAI API key and configuration
+openai_api_key = os.getenv('OPENAI_API_KEY')
+if not openai_api_key:
+    logger.error("OpenAI API key not found in environment variables")
+    logger.info("Will use mock responses for OpenAI as fallback")
+
+# Enable debug mode for testing - will use mock responses instead of calling the API
+USE_MOCK_RESPONSES = False
+logger.info(f"Mock responses {'enabled' if USE_MOCK_RESPONSES else 'disabled'}")
+
+# Configure OpenAI client - handle both new and old API versions
+try:
+    # For all versions, set legacy API key
+    openai.api_key = openai_api_key
+    
+    # Only try to use the API if not using mock responses
+    if not USE_MOCK_RESPONSES:
+        # Try the newer OpenAI package version first (v1.0.0+)
+        try:
+            logger.info("Trying to initialize newer OpenAI client...")
+            client = openai.OpenAI(api_key=openai_api_key)
+            
+            # Test connection with newer client
+            test_response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": "Test"}],
+                max_completion_tokens=5
+            )
+            logger.info("Successfully initialized newer OpenAI client")
+        except (ImportError, AttributeError):
+            # Try the older OpenAI package version (v0.x)
+            logger.info("Newer client failed, trying legacy OpenAI client...")
+            
+            # Test connection with legacy client
+            test_response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Test"}],
+                max_completion_tokens=5
+            )
+            logger.info("Successfully initialized legacy OpenAI client")
+            
+        logger.info(f"OpenAI API connection verified")
+        logger.info(f"OpenAI client initialized with key starting with: {openai_api_key[:5]}...")
+    else:
+        logger.info("Using mock responses for OpenAI - no API calls will be made")
+except Exception as e:
+    logger.error(f"Failed to initialize OpenAI client or verify connection: {str(e)}")
+    logger.info("Using mock responses for OpenAI as fallback")
+    # Set USE_MOCK_RESPONSES to True as fallback
+    USE_MOCK_RESPONSES = True
+    USE_MOCK_RESPONSES = True
 
 # Database Models
 class DailyConsolidation(db.Model):
@@ -217,6 +296,22 @@ class PumpReadings(db.Model):
             'total_liters': self.total_liters,
             'operator_name': self.operator_name,
             'created_at': self.created_at.isoformat()
+        }
+
+class ChatHistory(db.Model):
+    __tablename__ = 'chat_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_message = db.Column(db.Text, nullable=False)
+    ai_response = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_message': self.user_message,
+            'ai_response': self.ai_response,
+            'timestamp': self.timestamp.isoformat()
         }
 
 class TankReading(db.Model):
@@ -603,6 +698,101 @@ def get_daily_completion_status(target_date):
         return 'PARTIAL'
     else:
         return 'EMPTY'
+
+# LangChain SQL Agent Functions
+def create_sql_agent_instance():
+    """Create and configure the LangChain SQL agent"""
+    if not LANGCHAIN_AVAILABLE:
+        raise ImportError("LangChain is not available. Please install required packages.")
+    
+    if not openai_api_key:
+        raise ValueError("OpenAI API key is not configured")
+    
+    try:
+        # Create the database connection for LangChain
+        # Use the same database URI as the Flask app
+        database_uri = app.config['SQLALCHEMY_DATABASE_URI']
+        db_langchain = SQLDatabase.from_uri(database_uri)
+        
+        # Create ChatOpenAI instance
+        llm = ChatOpenAI(
+            model="gpt-4",
+            temperature=0,
+            openai_api_key=openai_api_key
+        )
+        
+        # Create SQL toolkit
+        toolkit = SQLDatabaseToolkit(db=db_langchain, llm=llm)
+        
+        # Create the SQL agent with safety configurations
+        agent_executor = create_sql_agent(
+            llm=llm,
+            toolkit=toolkit,
+            agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=3,
+            early_stopping_method="generate"
+        )
+        
+        return agent_executor, db_langchain
+        
+    except Exception as e:
+        logger.error(f"Error creating SQL agent: {str(e)}")
+        raise
+
+def validate_sql_query(query):
+    """Validate that SQL query is safe (read-only)"""
+    # Convert to lowercase for checking
+    query_lower = query.lower().strip()
+    
+    # Check for forbidden operations
+    forbidden_keywords = [
+        'insert', 'update', 'delete', 'drop', 'create', 'alter', 
+        'truncate', 'replace', 'merge', 'call', 'exec', 'execute',
+        'grant', 'revoke', 'commit', 'rollback', 'savepoint'
+    ]
+    
+    for keyword in forbidden_keywords:
+        if keyword in query_lower:
+            return False, f"Forbidden operation '{keyword}' detected"
+    
+    # Must start with SELECT
+    if not query_lower.startswith('select'):
+        return False, "Only SELECT statements are allowed"
+    
+    return True, "Query is safe"
+
+def get_database_schema_info():
+    """Get schema information for the AI agent"""
+    return """
+    DATABASE SCHEMA INFORMATION:
+    
+    Table: daily_consolidation
+    - Primary table for daily operations data
+    - Columns: id, date, shift (Day/Night), manager, ms_rate, ms_quantity, ms_amount, 
+              hsd_rate, hsd_quantity, hsd_amount, power_rate, power_quantity, power_amount,
+              hsd1_tank, hsd2_tank, ms1_tank, ms2_tank, power1_tank, total_outstanding, hpcl_payment,
+              cash_collections, card_collections, paytm_collections, hp_transactions, manager_notes, created_at
+    
+    Table: procurement_data
+    - Fuel procurement/purchase records
+    - Columns: id, invoice_number, invoice_date, fuel_type (MS/HSD/POWER), quantity, rate, 
+              total_amount, vehicle_number, supplier, created_at
+    
+    Table: chat_history
+    - AI chat conversation history
+    - Columns: id, user_message, ai_response, timestamp
+    
+    BUSINESS CONTEXT:
+    - This is a petrol station management system
+    - Fuel types: MS (Motor Spirit/Petrol), HSD (High Speed Diesel), POWER (Power Petrol)
+    - Shifts: Day (morning), Night (evening)
+    - Collections: cash_collections, card_collections, paytm_collections, hp_transactions
+    - Tank levels are measured in liters
+    - HPCL is the fuel supplier, total_outstanding is credit owed to them
+    - hpcl_payment tracks daily payments made to HPCL
+    """
 
 # API Routes
 
@@ -2335,6 +2525,27 @@ def delete_tank_reading(reading_id):
         logger.error(f"Error deleting tank reading: {str(e)}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 400
+
+# AI Chat Routes
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_chat():
+    try:
+        # Check if OpenAI API key is valid
+        if not openai_api_key:
+            logger.error("Invalid OpenAI API key. Please set a valid API key.")
+            return jsonify({'success': False, 'error': "OpenAI API key is not configured correctly. Please set a valid API key."}), 400
+            
+        # Check if LangChain is available
+        if not LANGCHAIN_AVAILABLE:
+            logger.warning("LangChain is not available. Using fallback AI chat system.")
+            # Fall back to basic AI chat with business data summary
+            try:
+                data = request.json
+                if not data or 'message' not in data:
+                    return jsonify({'success': False, 'error': "Message field is required"}), 400
+                    
+                user_message = data['message']
+                logger.info(f"Processing fallback AI chat request: {user_message[:50]}...")
                 
                 # Get business data summary for context
                 business_data = get_business_data_summary()
@@ -2547,7 +2758,19 @@ You can provide general guidance about petrol station operations, fuel managemen
                 
             except Exception as fallback_error:
                 logger.error(f"Fallback AI chat also failed: {str(fallback_error)}")
+                return jsonify({
+                    'success': False, 
+                    'error': f"Both LangChain and fallback AI systems failed: {str(langchain_error)}"
+                }), 500
+        
+    except Exception as e:
+        logger.error(f"Error in AI chat endpoint: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': f"An error occurred: {str(e)}"}), 500
 
+@app.route('/api/ai/advanced_chat', methods=['POST'])
+def advanced_ai_chat():
+    """Advanced AI chat endpoint using LangChain SQL Agent for direct database querying"""
+    try:
         # Check if LangChain is available
         if not LANGCHAIN_AVAILABLE:
             return jsonify({
