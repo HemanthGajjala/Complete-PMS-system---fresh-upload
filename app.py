@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta, time
 import os
 import json
 import logging
+import pandas as pd
 import io
 from dotenv import load_dotenv
 
@@ -106,11 +107,10 @@ CORS(app, supports_credentials=True, origins="*")
 openai_api_key = os.getenv('OPENAI_API_KEY')
 if not openai_api_key:
     logger.error("OpenAI API key not found in environment variables")
-    # For development only - set your key in .env file
-    logger.info("Using environment variable or .env file for API key")
+    logger.info("Will use mock responses for OpenAI as fallback")
 
 # Enable debug mode for testing - will use mock responses instead of calling the API
-USE_MOCK_RESPONSES = os.getenv('USE_MOCK_RESPONSES', 'False').lower() == 'true'
+USE_MOCK_RESPONSES = False
 logger.info(f"Mock responses {'enabled' if USE_MOCK_RESPONSES else 'disabled'}")
 
 # Configure OpenAI client - handle both new and old API versions
@@ -255,6 +255,46 @@ class ProcurementData(db.Model):
             'total_amount': self.total_amount,
             'vehicle_number': self.vehicle_number,
             'supplier': self.supplier,
+            'created_at': self.created_at.isoformat()
+        }
+
+class PumpReadings(db.Model):
+    __tablename__ = 'pump_readings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    daily_entry_id = db.Column(db.Integer, db.ForeignKey('daily_consolidation.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    shift = db.Column(db.String(10), nullable=False)  # Day/Night
+    
+    # Pump identification
+    pump_name = db.Column(db.String(10), nullable=False)  # MS1, MS2, MS3, HSD1, HSD2, HSD3, MSP1, MSP2
+    fuel_type = db.Column(db.String(10), nullable=False)  # MS, HSD, POWER
+    
+    # Pump readings
+    opening_reading = db.Column(db.Float, nullable=False, default=0.0)
+    closing_reading = db.Column(db.Float, nullable=False, default=0.0)
+    test_quantity = db.Column(db.Float, nullable=False, default=0.0)
+    total_liters = db.Column(db.Float, nullable=False, default=0.0)
+    
+    # Person responsible
+    operator_name = db.Column(db.String(100), nullable=False)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'daily_entry_id': self.daily_entry_id,
+            'date': self.date.isoformat(),
+            'shift': self.shift,
+            'pump_name': self.pump_name,
+            'fuel_type': self.fuel_type,
+            'opening_reading': self.opening_reading,
+            'closing_reading': self.closing_reading,
+            'test_quantity': self.test_quantity,
+            'total_liters': self.total_liters,
+            'operator_name': self.operator_name,
             'created_at': self.created_at.isoformat()
         }
 
@@ -997,6 +1037,126 @@ def delete_daily_entry(entry_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
+# Pump Readings Routes
+@app.route('/api/pump-readings', methods=['POST'])
+def create_pump_readings():
+    """Create pump readings for a daily entry"""
+    try:
+        data = request.json
+        logger.info(f"Creating pump readings for daily entry: {data}")
+        
+        # Validate required fields
+        required_fields = ['daily_entry_id', 'date', 'shift', 'pump_readings']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        # Process each pump reading
+        pump_readings = []
+        for pump_data in data['pump_readings']:
+            # Calculate total liters
+            opening = float(pump_data.get('opening_reading', 0))
+            closing = float(pump_data.get('closing_reading', 0))
+            test = float(pump_data.get('test_quantity', 0))
+            total_liters = (closing - opening) - test
+            
+            pump_reading = PumpReadings(
+                daily_entry_id=data['daily_entry_id'],
+                date=datetime.strptime(data['date'], '%Y-%m-%d').date(),
+                shift=data['shift'],
+                pump_name=pump_data['pump_name'],
+                fuel_type=pump_data['fuel_type'],
+                opening_reading=opening,
+                closing_reading=closing,
+                test_quantity=test,
+                total_liters=total_liters,
+                operator_name=pump_data.get('operator_name', '')
+            )
+            
+            db.session.add(pump_reading)
+            pump_readings.append(pump_reading)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Pump readings created successfully',
+            'data': [reading.to_dict() for reading in pump_readings]
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating pump readings: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/pump-readings', methods=['GET'])
+def get_pump_readings():
+    """Get pump readings with optional filtering"""
+    try:
+        # Get query parameters
+        daily_entry_id = request.args.get('daily_entry_id', type=int)
+        date = request.args.get('date')
+        shift = request.args.get('shift')
+        
+        query = PumpReadings.query
+        
+        if daily_entry_id:
+            query = query.filter(PumpReadings.daily_entry_id == daily_entry_id)
+        if date:
+            query = query.filter(PumpReadings.date == date)
+        if shift:
+            query = query.filter(PumpReadings.shift == shift)
+        
+        readings = query.order_by(PumpReadings.pump_name).all()
+        
+        return jsonify({
+            'success': True,
+            'data': [reading.to_dict() for reading in readings]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching pump readings: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/pump-readings/<int:reading_id>', methods=['PUT'])
+def update_pump_reading(reading_id):
+    """Update a pump reading"""
+    try:
+        data = request.json
+        reading = PumpReadings.query.get_or_404(reading_id)
+        
+        # Update fields
+        for key, value in data.items():
+            if hasattr(reading, key):
+                setattr(reading, key, value)
+        
+        # Recalculate total liters
+        reading.total_liters = (reading.closing_reading - reading.opening_reading) - reading.test_quantity
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Pump reading updated successfully',
+            'data': reading.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/pump-readings/<int:reading_id>', methods=['DELETE'])
+def delete_pump_reading(reading_id):
+    """Delete a pump reading"""
+    try:
+        reading = PumpReadings.query.get_or_404(reading_id)
+        db.session.delete(reading)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Pump reading deleted successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 # HPCL Ledger Route
 @app.route('/api/hpcl-ledger', methods=['GET'])
 def get_hpcl_ledger():
@@ -1326,6 +1486,239 @@ def get_hpcl_transaction_ledger():
             'error': str(e),
             'message': 'An error occurred while retrieving HPCL transaction ledger data.'
         }), 400
+
+@app.route('/api/hpcl-transaction-ledger/excel', methods=['GET'])
+def download_hpcl_ledger_excel():
+    """Generate and download HPCL Transaction Ledger as Excel file"""
+    try:
+        logger.info("HPCL Transaction Ledger Excel download request")
+        
+        # Get optional date range parameters (same as main API)
+        days = request.args.get('days', default=30, type=int)
+        logger.info(f"Excel download requested for {days} days")
+        
+        # Reuse the same logic as the main API to get transactions
+        today = date.today()
+        start_date = today - timedelta(days=days)
+        
+        # Collect all transactions (same logic as main API)
+        transactions = []
+        
+        # 1. Get procurement transactions
+        try:
+            procurement_entries = db.session.query(ProcurementData).filter(
+                ProcurementData.invoice_date >= start_date
+            ).order_by(ProcurementData.invoice_date.desc()).all()
+            
+            for entry in procurement_entries:
+                manual_balance_entry = db.session.query(DailyConsolidation.total_outstanding).filter(
+                    DailyConsolidation.date == entry.invoice_date,
+                    DailyConsolidation.total_outstanding.isnot(None)
+                ).first()
+                
+                manual_balance = float(manual_balance_entry.total_outstanding) if manual_balance_entry and manual_balance_entry.total_outstanding is not None else None
+                
+                transactions.append({
+                    'date': entry.invoice_date,
+                    'description': f"Procurement - Invoice #{entry.invoice_number} ({entry.fuel_type} - {entry.quantity}L)",
+                    'debit': float(entry.total_amount),
+                    'credit': 0,
+                    'type': 'procurement',
+                    'reference': entry.invoice_number,
+                    'details': {
+                        'fuel_type': entry.fuel_type,
+                        'quantity': entry.quantity,
+                        'rate': entry.rate,
+                        'vehicle_number': entry.vehicle_number
+                    },
+                    'reported_balance': manual_balance,
+                    'total_collections': 0
+                })
+        except Exception as e:
+            logger.error(f"Error fetching procurement data for Excel: {str(e)}")
+        
+        # 2. Get payment transactions
+        try:
+            column_exists = False
+            try:
+                with db.engine.connect() as conn:
+                    result = conn.execute(text("PRAGMA table_info(daily_consolidation)"))
+                    columns = [row[1] for row in result]
+                    column_exists = 'hpcl_payment' in columns
+            except Exception as e:
+                logger.warning(f"Error checking for hpcl_payment column: {str(e)}")
+            
+            if column_exists:
+                payment_entries = db.session.query(DailyConsolidation).filter(
+                    DailyConsolidation.date >= start_date,
+                    DailyConsolidation.hpcl_payment > 0
+                ).order_by(DailyConsolidation.date.desc()).all()
+                
+                for entry in payment_entries:
+                    manual_balance = float(entry.total_outstanding) if entry.total_outstanding is not None else None
+                    
+                    transactions.append({
+                        'date': entry.date,
+                        'description': f"Payment to HPCL",
+                        'debit': 0,
+                        'credit': float(entry.hpcl_payment),
+                        'type': 'payment',
+                        'reference': f"Payment-{entry.date.strftime('%Y%m%d')}",
+                        'details': {},
+                        'reported_balance': manual_balance,
+                        'total_collections': 0
+                    })
+        except Exception as e:
+            logger.error(f"Error fetching payment data for Excel: {str(e)}")
+        
+        # 3. Get daily consolidation entries
+        try:
+            daily_entries = db.session.query(DailyConsolidation).filter(
+                DailyConsolidation.date >= start_date
+            ).order_by(DailyConsolidation.date.desc(), DailyConsolidation.shift.desc()).all()
+            
+            for entry in daily_entries:
+                cash_amount = float(entry.cash_collections or 0)
+                card_amount = float(entry.card_collections or 0)
+                paytm_amount = float(entry.paytm_collections or 0)
+                hp_amount = float(entry.hp_transactions or 0)
+                total_collections = cash_amount + card_amount + paytm_amount + hp_amount
+                
+                shift_display = "Day Shift (8:30 AM - 8:30 PM)" if entry.shift == "Day" else "Night Shift (8:30 PM - 8:30 AM)"
+                manual_balance = float(entry.total_outstanding) if entry.total_outstanding is not None else None
+                
+                transactions.append({
+                    'date': entry.date,
+                    'description': f"Daily Collections - {shift_display} (Manager: {entry.manager or 'N/A'})",
+                    'debit': 0,
+                    'credit': 0,
+                    'type': 'daily_collections',
+                    'reference': f"Daily-{entry.date.strftime('%Y%m%d')}-{entry.shift}",
+                    'details': {
+                        'shift': entry.shift,
+                        'manager': entry.manager,
+                        'cash_collections': cash_amount,
+                        'card_collections': card_amount,
+                        'paytm_collections': paytm_amount,
+                        'hp_transactions': hp_amount
+                    },
+                    'reported_balance': manual_balance,
+                    'total_collections': total_collections
+                })
+        except Exception as e:
+            logger.error(f"Error fetching daily consolidation entries for Excel: {str(e)}")
+        
+        # Sort transactions by date (newest first)
+        transactions.sort(key=lambda x: x['date'], reverse=True)
+        
+        # Prepare data for Excel
+        excel_data = []
+        for transaction in transactions:
+            excel_data.append({
+                'Date': transaction['date'].strftime('%Y-%m-%d'),
+                'Description': transaction['description'],
+                'Type': transaction['type'].replace('_', ' ').title(),
+                'Debit (₹)': transaction.get('debit', 0) if transaction.get('debit', 0) > 0 else '',
+                'Credit (₹)': transaction.get('credit', 0) if transaction.get('credit', 0) > 0 else '',
+                'Total Collections (₹)': transaction.get('total_collections', 0) if transaction.get('total_collections', 0) > 0 else '',
+                'Reported Balance (₹)': transaction.get('reported_balance', '') if transaction.get('reported_balance') is not None else '',
+                'Reference': transaction.get('reference', ''),
+                'Fuel Type': transaction.get('details', {}).get('fuel_type', ''),
+                'Quantity (L)': transaction.get('details', {}).get('quantity', ''),
+                'Rate (₹/L)': transaction.get('details', {}).get('rate', ''),
+                'Vehicle Number': transaction.get('details', {}).get('vehicle_number', ''),
+                'Shift': transaction.get('details', {}).get('shift', ''),
+                'Manager': transaction.get('details', {}).get('manager', ''),
+                'Cash Collections': transaction.get('details', {}).get('cash_collections', ''),
+                'Card Collections': transaction.get('details', {}).get('card_collections', ''),
+                'Paytm Collections': transaction.get('details', {}).get('paytm_collections', ''),
+                'HP Transactions': transaction.get('details', {}).get('hp_transactions', '')
+            })
+        
+        if not excel_data:
+            return jsonify({'success': False, 'error': 'No transaction data available for the selected period'}), 400
+        
+        # Create DataFrame
+        df = pd.DataFrame(excel_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='HPCL_Transaction_Ledger', index=False)
+            
+            # Get the workbook and worksheet for formatting
+            workbook = writer.book
+            worksheet = writer.sheets['HPCL_Transaction_Ledger']
+            
+            # Apply formatting
+            from openpyxl.styles import Font, PatternFill, Alignment
+            
+            # Header formatting
+            header_font = Font(bold=True, color='FFFFFF')
+            header_fill = PatternFill(start_color='2E4BC6', end_color='2E4BC6', fill_type='solid')
+            
+            for col in range(1, len(df.columns) + 1):
+                cell = worksheet.cell(row=1, column=col)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal='center')
+            
+            # Auto-adjust column widths
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+            
+            # Add summary sheet
+            summary_data = [
+                ['HPCL Transaction Ledger Summary', ''],
+                ['Date Range', f"{start_date.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}"],
+                ['Total Days', days],
+                ['', ''],
+                ['Transaction Summary', ''],
+                ['Total Procurement Transactions', sum(1 for t in transactions if t['type'] == 'procurement')],
+                ['Total Payment Transactions', sum(1 for t in transactions if t['type'] == 'payment')],
+                ['Total Daily Collection Entries', sum(1 for t in transactions if t['type'] == 'daily_collections')],
+                ['', ''],
+                ['Financial Summary', ''],
+                ['Total Procured Amount (₹)', sum(t.get('debit', 0) for t in transactions)],
+                ['Total Payments Made (₹)', sum(t.get('credit', 0) for t in transactions)],
+                ['Total Collections (₹)', sum(t.get('total_collections', 0) for t in transactions)],
+                ['', ''],
+                ['Generated On', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+            ]
+            
+            summary_df = pd.DataFrame(summary_data, columns=['Item', 'Value'])
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Format summary sheet
+            summary_worksheet = writer.sheets['Summary']
+            for col in range(1, 3):
+                cell = summary_worksheet.cell(row=1, column=col)
+                cell.font = header_font
+                cell.fill = header_fill
+        
+        output.seek(0)
+        
+        filename = f"HPCL_Transaction_Ledger_{start_date.strftime('%Y%m%d')}_to_{today.strftime('%Y%m%d')}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating HPCL ledger Excel: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # Customer Credit Routes
 @app.route('/api/customer-credit', methods=['POST'])
@@ -4040,5 +4433,4 @@ def detect_anomalies():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=5000)
