@@ -2,7 +2,7 @@
 nixPkgs = ["python311", "python311Packages.pip", "python311Packages.setuptools", "python311Packages.wheel", "gcc"]
 
 [phases.install]
-cmds = ["python -m pip install --upgrade pip", "python -m pip install -r requirements.txt --no-cache-dir"]
+cmds = ["python -m pip install --upgrade pip", "python -m pip install -r backend/requirements.txt --no-cache-dir"]
 
 [start]
-cmd = "cd backend && python app.py"
+cmd = "python main.py"
