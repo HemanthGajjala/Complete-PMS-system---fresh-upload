@@ -2,16 +2,16 @@
 import os
 import sys
 
-# Simple Railway deployment - just run the backend Flask app directly
+# Simple Railway deployment - change to backend directory FIRST
 if __name__ == '__main__':
-    # Change to backend directory where app.py is located
+    # Change to backend directory BEFORE importing Flask app
     backend_dir = os.path.join(os.path.dirname(__file__), 'backend')
     os.chdir(backend_dir)
     
     # Add backend to Python path
     sys.path.insert(0, backend_dir)
     
-    # Import and run Flask app
+    # NOW import Flask app (so it initializes with correct working directory)
     from app import app
     
     # Get port from Railway environment
