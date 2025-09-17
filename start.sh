@@ -16,15 +16,23 @@ if [ ! -s "instance/petrol_station.db" ]; then
   chmod 666 instance/petrol_station.db || echo "Couldn't set permissions on database file"
 fi
 
-# Copy the latest frontend build to Flask static folder
-echo "Copying frontend build to static folder..."
-mkdir -p static
-rm -rf static/* || true
-cp -r frontend/dist/* static/ || echo "No frontend build found"
+# Ensure we have the frontend build
+echo "Checking frontend build..."
+if [ -d "static" ]; then
+  echo "Static directory exists, listing contents:"
+  ls -la static/
+else
+  echo "No static directory found!"
+fi
 
-# Update templates
+# Update templates directory
 mkdir -p templates
-cp -f static/index.html templates/ || echo "No index.html found in build"
+if [ -f "static/index.html" ]; then
+  cp static/index.html templates/
+  echo "Copied index.html to templates"
+else
+  echo "No index.html found in static directory!"
+fi
 
 echo "Starting app with database in instance directory..."
 python app.py
