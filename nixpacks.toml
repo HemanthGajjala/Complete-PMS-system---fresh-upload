@@ -1,12 +1,18 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "python311Packages.setuptools", "python311Packages.wheel", "gcc"]
+nixPkgs = ["python311", "python311Packages.pip", "python311Packages.setuptools", "python311Packages.wheel", "gcc", "sqlite"]
 
 [phases.install]
 cmds = [
   "python -m pip install --upgrade pip", 
   "python -m pip install -r requirements.txt --no-cache-dir",
-  "mkdir -p instance"
+  "mkdir -p instance",
+  "cp -f backend/instance/petrol_station.db instance/ || cp -f backend/petrol_station.db instance/ || echo 'Using existing database'"
 ]
 
 [start]
-cmd = "python app.py"
+cmd = "chmod +x start.sh && ./start.sh"
+
+# This tells Railway to persist the instance directory
+[mount]
+source = "data"
+destination = "/app/instance"

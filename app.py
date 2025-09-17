@@ -401,15 +401,22 @@ class HPCLPayments(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# Initialize database tables
+# Initialize database tables - but don't overwrite existing data
 with app.app_context():
-    db.create_all()
-    logger.info("Database tables created successfully")
-    
-    # Test database connection
     try:
-        db.session.execute(text('SELECT 1'))  # Use text() here
+        # First test if database connection works
+        db.session.execute(text('SELECT 1'))
         logger.info("Database connection successful")
+        
+        # Check if tables exist before creating
+        try:
+            # Check if a key table exists
+            db.session.execute(text('SELECT COUNT(*) FROM daily_consolidation'))
+            logger.info("Database tables already exist - using existing data")
+        except Exception:
+            # Tables don't exist - create them
+            db.create_all()
+            logger.info("Database tables created successfully")
     except Exception as e:
         logger.error(f"Database connection failed: {str(e)}")
 

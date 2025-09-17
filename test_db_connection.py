@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from flask import Flask
+import shutil
 
 print("Current working directory:", os.getcwd())
 print("Files in current directory:", os.listdir())
@@ -18,6 +19,64 @@ else:
     # Create it
     os.makedirs('instance', exist_ok=True)
     print("Created 'instance' directory")
+
+# Check for database file in instance directory
+if not os.path.exists('instance/petrol_station.db'):
+    print("Database file doesn't exist in instance directory")
+    
+    # Check if database exists in backend/instance
+    if os.path.exists('backend/instance/petrol_station.db'):
+        print("Database found in backend/instance, copying to instance directory")
+        shutil.copy('backend/instance/petrol_station.db', 'instance/petrol_station.db')
+        print("Database copied successfully")
+    # Check if database exists in backend
+    elif os.path.exists('backend/petrol_station.db'):
+        print("Database found in backend, copying to instance directory")
+        shutil.copy('backend/petrol_station.db', 'instance/petrol_station.db')
+        print("Database copied successfully")
+    # If no database found, create a new one
+    else:
+        print("No existing database found, creating a new one")
+        conn = sqlite3.connect('instance/petrol_station.db')
+        c = conn.cursor()
+        
+        # Create basic tables
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS daily_consolidation (
+            id INTEGER PRIMARY KEY,
+            date DATE,
+            ms_sales REAL,
+            ms_amount REAL,
+            hsd_sales REAL,
+            hsd_amount REAL,
+            power_sales REAL,
+            power_amount REAL,
+            cash_collections REAL,
+            card_collections REAL,
+            paytm_collections REAL,
+            expenses REAL,
+            comments TEXT
+        )
+        ''')
+        
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS procurement_data (
+            id INTEGER PRIMARY KEY,
+            date DATE,
+            ms_received REAL,
+            ms_amount REAL,
+            hsd_received REAL,
+            hsd_amount REAL,
+            power_received REAL,
+            power_amount REAL,
+            payment_mode TEXT,
+            invoice_number TEXT
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("Created new database with basic schema")
 
 # Try absolute path
 instance_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
