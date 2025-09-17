@@ -3313,9 +3313,58 @@ def serve_frontend():
 @app.route('/<path:path>')
 def serve_frontend_routes(path):
     # For React Router - serve index.html for all frontend routes
-    if path.startswith('api/'):
+    if path.startswith('api/') and not path == 'api/db-status':
         return jsonify({'error': 'API endpoint not found'}), 404
     return render_template('index.html')
+
+@app.route('/api/db-status')
+def db_status():
+    try:
+        # Get the database path
+        db_path = app.config['SQLALCHEMY_DATABASE_URI']
+        
+        # Get the actual file path from the URI
+        import os
+        from sqlalchemy import inspect
+        
+        # Get database table information
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        
+        # Count records in each table
+        table_counts = {}
+        for table in tables:
+            try:
+                count = db.session.execute(text(f'SELECT COUNT(*) FROM {table}')).scalar()
+                table_counts[table] = count
+            except Exception as e:
+                table_counts[table] = str(e)
+        
+        # Check instance directory
+        instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
+        instance_exists = os.path.exists(instance_dir)
+        instance_contents = os.listdir(instance_dir) if instance_exists else []
+        
+        return jsonify({
+            'status': 'success',
+            'database_uri': db_path,
+            'instance_directory': {
+                'exists': instance_exists,
+                'path': instance_dir,
+                'contents': instance_contents
+            },
+            'tables': tables,
+            'record_counts': table_counts,
+            'working_directory': os.getcwd(),
+            'directory_contents': os.listdir()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'working_directory': os.getcwd(),
+            'directory_contents': os.listdir() if os.path.exists('.') else []
+        }), 500
 
 @app.route('/assets/<path:filename>')
 def serve_assets(filename):
