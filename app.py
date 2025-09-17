@@ -94,7 +94,15 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
 os.makedirs(instance_dir, exist_ok=True)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/petrol_station.db'
+# Make sure the database directory is writable
+os.chmod(instance_dir, 0o777)
+
+# Use an absolute path for the database
+db_path = os.path.join(instance_dir, 'petrol_station.db')
+print(f"Database path: {db_path}")
+
+# Use the absolute file path for SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Also ensure Flask's default instance folder exists

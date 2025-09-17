@@ -6,7 +6,8 @@ cmds = [
   "python -m pip install --upgrade pip", 
   "python -m pip install -r requirements.txt --no-cache-dir",
   "mkdir -p instance",
-  "cp -f backend/instance/petrol_station.db instance/ || cp -f backend/petrol_station.db instance/ || echo 'Using existing database'"
+  "cp -f backend/instance/petrol_station.db instance/ || cp -f backend/petrol_station.db instance/ || echo 'Using existing database'",
+  "chmod -R 777 instance || true"
 ]
 
 [start]
@@ -14,5 +15,5 @@ cmd = "chmod +x start.sh && ./start.sh"
 
 # This tells Railway to persist the instance directory
 [mount]
-source = "data"
+source = "sqlite_data"
 destination = "/app/instance"
