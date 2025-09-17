@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Save, Calculator, AlertCircle, Droplet } from 'lucide-react';
 import { TANK_CAPACITIES, calculateTankFillPercentage, getTankFillColorClass } from '@/lib/constants';
+import { apiUrl } from '@/lib/api-config';
 
 const DailyEntry = ({ selectedDate }) => {
   const [formData, setFormData] = useState({
@@ -54,7 +55,7 @@ const DailyEntry = ({ selectedDate }) => {
   useEffect(() => {
     const fetchBusinessDayInfo = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/business-day-info');
+        const response = await fetch(apiUrl('/api/business-day-info'));
         const data = await response.json();
         if (data.success) {
           setBusinessDayInfo(data.data);

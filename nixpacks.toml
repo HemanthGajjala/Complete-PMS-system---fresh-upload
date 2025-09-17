@@ -8,6 +8,8 @@ cmds = [
   "mkdir -p instance",
   "cp -f backend/instance/petrol_station.db instance/ || cp -f backend/petrol_station.db instance/ || echo 'Using existing database'",
   "chmod -R 777 instance || true",
+  "chmod +x update_api_endpoints.sh",
+  "./update_api_endpoints.sh",
   "cd frontend && pnpm install && pnpm build && cd .."
 ]
 
