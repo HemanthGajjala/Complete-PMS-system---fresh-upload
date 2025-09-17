@@ -89,7 +89,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///petrol_station.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/petrol_station.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Ensure the instance folder exists
