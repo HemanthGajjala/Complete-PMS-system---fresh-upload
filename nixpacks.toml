@@ -14,8 +14,3 @@ cmds = [
 
 [start]
 cmd = "chmod +x start.sh && ./start.sh"
-
-# This tells Railway to persist the instance directory
-[mount]
-source = "sqlite_data"
-destination = "/app/instance"

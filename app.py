@@ -97,9 +97,16 @@ os.makedirs(instance_dir, exist_ok=True)
 # Make sure the database directory is writable
 os.chmod(instance_dir, 0o777)
 
-# Use an absolute path for the database
-db_path = os.path.join(instance_dir, 'petrol_station.db')
-print(f"Database path: {db_path}")
+# RAILWAY FIX: Use the database file directly from root if it exists
+root_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'petrol_station_with_data.db')
+instance_db_path = os.path.join(instance_dir, 'petrol_station.db')
+
+if os.path.exists(root_db_path):
+    db_path = root_db_path
+    print(f"Using root database with real data: {db_path}")
+else:
+    db_path = instance_db_path
+    print(f"Using instance database: {db_path}")
 
 # Use the absolute file path for SQLite
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
