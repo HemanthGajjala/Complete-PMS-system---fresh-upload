@@ -5,12 +5,21 @@ nixPkgs = ["python311", "python311Packages.pip", "python311Packages.setuptools",
 cmds = [
   "python -m pip install --upgrade pip", 
   "python -m pip install -r requirements.txt --no-cache-dir",
-  "chmod +x setup_database.sh",
-  "./setup_database.sh",
+  "echo '=== NIXPACKS DATABASE SETUP ==='",
+  "ls -la backend/ || echo 'No backend directory'",
+  "ls -la backend/instance/ || echo 'No backend/instance directory'",
+  "mkdir -p instance",
+  "if [ -f 'backend/instance/petrol_station.db' ]; then cp -f backend/instance/petrol_station.db instance/ && echo 'Database copied from backend/instance'; elif [ -f 'backend/petrol_station.db' ]; then cp -f backend/petrol_station.db instance/ && echo 'Database copied from backend'; else echo 'NO DATABASE FOUND TO COPY!'; fi",
+  "chmod -R 777 instance || true",
   "chmod +x update_api_endpoints.sh",
   "./update_api_endpoints.sh",
   "cd frontend && pnpm install && pnpm build && cd .."
 ]
 
 [start]
-cmd = "python direct_db_test.py"
+cmd = "chmod +x start.sh && ./start.sh"
+
+# This tells Railway to persist the instance directory
+[mount]
+source = "sqlite_data"
+destination = "/app/instance"
