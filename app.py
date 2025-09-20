@@ -3382,6 +3382,11 @@ def db_status():
         return jsonify({
             'status': 'success',
             'database_uri': db_path,
+            'database_file': {
+                'path': db_file_path,
+                'exists': db_file_exists,
+                'size_bytes': db_file_size
+            },
             'instance_directory': {
                 'exists': instance_exists,
                 'path': instance_dir,
@@ -3394,6 +3399,7 @@ def db_status():
             },
             'tables': tables,
             'record_counts': table_counts,
+            'sample_data': sample_data,
             'working_directory': os.getcwd(),
             'directory_contents': os.listdir()
         })
