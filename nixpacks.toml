@@ -5,9 +5,8 @@ nixPkgs = ["python311", "python311Packages.pip", "python311Packages.setuptools",
 cmds = [
   "python -m pip install --upgrade pip", 
   "python -m pip install -r requirements.txt --no-cache-dir",
-  "mkdir -p instance",
-  "cp -f backend/instance/petrol_station.db instance/ || cp -f backend/petrol_station.db instance/ || echo 'Using existing database'",
-  "chmod -R 777 instance || true",
+  "chmod +x setup_database.sh",
+  "./setup_database.sh",
   "chmod +x update_api_endpoints.sh",
   "./update_api_endpoints.sh",
   "cd frontend && pnpm install && pnpm build && cd .."

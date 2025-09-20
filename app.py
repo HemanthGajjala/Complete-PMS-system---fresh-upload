@@ -3346,19 +3346,38 @@ def db_status():
         inspector = inspect(db.engine)
         tables = inspector.get_table_names()
         
-        # Count records in each table
+        # Count records in each table and get sample data
         table_counts = {}
+        sample_data = {}
         for table in tables:
             try:
                 count = db.session.execute(text(f'SELECT COUNT(*) FROM {table}')).scalar()
                 table_counts[table] = count
+                
+                # Get a sample record from each table
+                if count > 0:
+                    sample = db.session.execute(text(f'SELECT * FROM {table} LIMIT 1')).fetchone()
+                    sample_data[table] = dict(sample._mapping) if sample else None
+                else:
+                    sample_data[table] = "No records"
             except Exception as e:
-                table_counts[table] = str(e)
+                table_counts[table] = f"Error: {str(e)}"
+                sample_data[table] = f"Error: {str(e)}"
         
         # Check instance directory
         instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
         instance_exists = os.path.exists(instance_dir)
         instance_contents = os.listdir(instance_dir) if instance_exists else []
+        
+        # Check backend instance directory
+        backend_instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend', 'instance')
+        backend_instance_exists = os.path.exists(backend_instance_dir)
+        backend_instance_contents = os.listdir(backend_instance_dir) if backend_instance_exists else []
+        
+        # Check if database file exists and get its size
+        db_file_path = db_path.replace('sqlite:///', '')
+        db_file_exists = os.path.exists(db_file_path)
+        db_file_size = os.path.getsize(db_file_path) if db_file_exists else 0
         
         return jsonify({
             'status': 'success',
@@ -3367,6 +3386,11 @@ def db_status():
                 'exists': instance_exists,
                 'path': instance_dir,
                 'contents': instance_contents
+            },
+            'backend_instance_directory': {
+                'exists': backend_instance_exists,
+                'path': backend_instance_dir,
+                'contents': backend_instance_contents
             },
             'tables': tables,
             'record_counts': table_counts,
