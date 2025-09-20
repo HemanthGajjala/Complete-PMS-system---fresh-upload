@@ -8,9 +8,17 @@ cmds = [
   "echo '=== NIXPACKS DATABASE SETUP ==='",
   "ls -la backend/ || echo 'No backend directory'",
   "ls -la backend/instance/ || echo 'No backend/instance directory'",
+  
+  # Create instance dir for backward compatibility
   "mkdir -p instance",
-  "if [ -f 'backend/instance/petrol_station.db' ]; then cp -f backend/instance/petrol_station.db instance/ && echo 'Database copied from backend/instance'; elif [ -f 'backend/petrol_station.db' ]; then cp -f backend/petrol_station.db instance/ && echo 'Database copied from backend'; else echo 'NO DATABASE FOUND TO COPY!'; fi",
+  
+  # CRITICAL: Copy database to ROOT directory as seen in logs
+  "if [ -f 'backend/instance/petrol_station.db' ]; then cp -f backend/instance/petrol_station.db petrol_station.db && echo 'Database copied to root from backend/instance'; elif [ -f 'backend/petrol_station.db' ]; then cp -f backend/petrol_station.db . && echo 'Database copied to root from backend'; else echo 'NO DATABASE FOUND TO COPY!'; fi",
+  
+  # Make sure database is writable
+  "chmod 666 petrol_station.db || echo 'No petrol_station.db found to chmod'",
   "chmod -R 777 instance || true",
+  
   "chmod +x update_api_endpoints.sh",
   "./update_api_endpoints.sh",
   "cd frontend && pnpm install && pnpm build && cd .."

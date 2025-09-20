@@ -22,37 +22,39 @@ else
   echo "backend/petrol_station.db NOT FOUND"
 fi
 
-echo "=== SETTING UP INSTANCE DIRECTORY ==="
-mkdir -p instance
-chmod 777 instance
-
-# Copy the database to instance if it's not there or empty
-if [ ! -s "instance/petrol_station.db" ]; then
-  echo "Database empty or not found, copying from backup..."
+echo "=== SETTING UP ROOT DATABASE ==="
+# Copy the database to root if it's not there or empty
+if [ ! -s "petrol_station.db" ]; then
+  echo "Root database empty or not found, copying from backup..."
   if [ -f "backend/instance/petrol_station.db" ]; then
-    cp -f backend/instance/petrol_station.db instance/
-    echo "Copied from backend/instance/petrol_station.db"
+    cp -f backend/instance/petrol_station.db petrol_station.db
+    echo "Copied to root from backend/instance/petrol_station.db"
   elif [ -f "backend/petrol_station.db" ]; then
-    cp -f backend/petrol_station.db instance/
-    echo "Copied from backend/petrol_station.db"
+    cp -f backend/petrol_station.db petrol_station.db
+    echo "Copied to root from backend/petrol_station.db"
+  elif [ -f "instance/petrol_station.db" ]; then
+    cp -f instance/petrol_station.db petrol_station.db
+    echo "Copied to root from instance/petrol_station.db"
   else
     echo "NO DATABASE FOUND TO COPY!"
   fi
+  
+  # Make sure database is writable
+  chmod 666 petrol_station.db || echo "Couldn't set permissions on database file"
 else
-  echo "Database already exists in instance/"
+  echo "Database already exists at root"
 fi
 
-echo "=== VERIFYING COPIED DATABASE ==="
-if [ -f "instance/petrol_station.db" ]; then
-  echo "Final database size: $(stat -c%s instance/petrol_station.db) bytes"
-  chmod 666 instance/petrol_station.db
+echo "=== VERIFYING ROOT DATABASE ==="
+if [ -f "petrol_station.db" ]; then
+  echo "Root database size: $(stat -c%s petrol_station.db) bytes"
   echo "Database tables:"
-  sqlite3 instance/petrol_station.db "SELECT name FROM sqlite_master WHERE type='table';" || echo "Cannot query final database"
+  sqlite3 petrol_station.db "SELECT name FROM sqlite_master WHERE type='table';" || echo "Cannot query root database"
   echo "Record counts:"
-  sqlite3 instance/petrol_station.db "SELECT COUNT(*) as daily_count FROM daily_consolidation;" || echo "Cannot count daily records"
-  sqlite3 instance/petrol_station.db "SELECT COUNT(*) as procurement_count FROM procurement_data;" || echo "Cannot count procurement records"
+  sqlite3 petrol_station.db "SELECT COUNT(*) as daily_count FROM daily_consolidation;" || echo "Cannot count daily records"
+  sqlite3 petrol_station.db "SELECT COUNT(*) as procurement_count FROM procurement_data;" || echo "Cannot count procurement records"
 else
-  echo "FINAL DATABASE NOT FOUND!"
+  echo "ROOT DATABASE NOT FOUND!"
 fi
 
 echo "=== CHECKING FRONTEND BUILD ==="
